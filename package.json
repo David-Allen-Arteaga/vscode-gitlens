@@ -17948,6 +17948,7 @@
 		"icons:apply": "node ./scripts/applyIconsContribution.mjs",
 		"icons:svgo": "svgo -q -f ./images/icons/ --config svgo.config.js",
 		"lint": "yarn run lint:clear-cache && eslint .",
+		"lint:fix": "yarn run lint:clear-cache && eslint . --fix",
 		"lint:webviews": "yarn run lint:clear-cache && eslint \"src/webviews/apps/**/*.ts?(x)\"",
 		"lint:clear-cache": "npx rimraf .eslintcache",
 		"package": "vsce package --yarn",
