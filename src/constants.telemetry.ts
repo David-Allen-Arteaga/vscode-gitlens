@@ -274,7 +274,13 @@ export type TelemetryEvents = {
 	/** Sent when a launchpad operation is taking longer than a set timeout to complete */
 	'launchpad/operation/slow': {
 		timeout: number;
-		operation: 'getMyPullRequests' | 'getCodeSuggestions' | 'getEnrichedItems' | 'getCodeSuggestionCounts';
+		operation:
+			| 'getMyPullRequests'
+			| 'getCodeSuggestions'
+			| 'getEnrichedItems'
+			| 'getCodeSuggestionCounts'
+			| 'getPullRequest'
+			| 'searchPullRequests';
 		duration: number;
 	};
 

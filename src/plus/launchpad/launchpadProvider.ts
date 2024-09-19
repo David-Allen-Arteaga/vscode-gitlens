@@ -33,8 +33,10 @@ import type { UriTypes } from '../../uris/deepLinks/deepLink';
 import { DeepLinkActionType, DeepLinkType } from '../../uris/deepLinks/deepLink';
 import { showInspectView } from '../../webviews/commitDetails/actions';
 import type { ShowWipArgs } from '../../webviews/commitDetails/protocol';
-import type { IntegrationResult } from '../integrations/integration';
+import type { IntegrationResult, ResourceDescriptor } from '../integrations/integration';
 import type { ConnectionStateChangeEvent } from '../integrations/integrationService';
+import type { GitHubRepositoryDescriptor } from '../integrations/providers/github';
+import { getPullRequestIdentityValuesFromSearch } from '../integrations/providers/github';
 import type {
 	EnrichablePullRequest,
 	IntegrationId,
@@ -315,6 +317,58 @@ export class LaunchpadProvider implements Disposable {
 		}
 
 		return { prs: prs, suggestionCounts: suggestionCounts };
+	}
+
+	private async getSearchedPullRequests(search: string) {
+		const { ownerAndRepo, prNumber } = getPullRequestIdentityValuesFromSearch(search);
+		let result: TimedResult<SearchedPullRequest[] | undefined> | undefined;
+
+		if (prNumber != null) {
+			if (ownerAndRepo != null) {
+				// TODO: This needs to be generalized to work outside of GitHub
+				const integration = await this.container.integrations.get(HostingIntegrationId.GitHub);
+				const [owner, repo] = ownerAndRepo.split('/', 2);
+				const descriptor: GitHubRepositoryDescriptor = {
+					key: ownerAndRepo,
+					owner: owner,
+					name: repo,
+				};
+				const pr = await withDurationAndSlowEventOnTimeout(
+					integration?.getPullRequest(descriptor, prNumber),
+					'getPullRequest',
+					this.container,
+				);
+				if (pr?.value != null) {
+					result = { value: [{ pullRequest: pr.value, reasons: [] }], duration: pr.duration };
+					return { prs: result, suggestionCounts: undefined };
+				}
+			}
+		}
+		// TODO: This searches all open GitHub repositories. Needs to be generalized to work outside of GitHub.
+		const repos = (
+			await Promise.all(
+				map(
+					this.container.git.repositories,
+					async r =>
+						(await r.getBestRemoteWithIntegration({ filter: (_, i) => i.id === 'github' }))?.provider
+							.repoDesc,
+				),
+			)
+		).filter((r): r is ResourceDescriptor => r != null);
+
+		// TODO: This needs to be generalized to work outside of GitHub
+		const integration = await this.container.integrations.get(HostingIntegrationId.GitHub);
+		const prs = await withDurationAndSlowEventOnTimeout(
+			integration?.searchPullRequests(search, repos),
+			'searchPullRequests',
+			this.container,
+		);
+		if (prs?.value != null) {
+			result = { value: prs.value.map(pr => ({ pullRequest: pr, reasons: [] })), duration: prs.duration };
+			return { prs: result, suggestionCounts: undefined };
+		}
+
+		return { prs: undefined, suggestionCounts: undefined };
 	}
 
 	private _enrichedItems: CachedLaunchpadPromise<TimedResult<EnrichedItem[]>> | undefined;
@@ -606,12 +660,12 @@ export class LaunchpadProvider implements Disposable {
 	@gate<LaunchpadProvider['getCategorizedItems']>(o => `${o?.force ?? false}`)
 	@log<LaunchpadProvider['getCategorizedItems']>({ args: { 0: o => `force=${o?.force}`, 1: false } })
 	async getCategorizedItems(
-		options?: { force?: boolean },
+		options?: { force?: boolean; search?: string },
 		cancellation?: CancellationToken,
 	): Promise<LaunchpadCategorizedResult> {
 		const scope = getLogScope();
 
-		const fireRefresh = options?.force || this._prs == null;
+		const fireRefresh = !options?.search && (options?.force || this._prs == null);
 
 		const ignoredRepositories = new Set(
 			(configuration.get('launchpad.ignoredRepositories') ?? []).map(r => r.toLowerCase()),
@@ -634,7 +688,9 @@ export class LaunchpadProvider implements Disposable {
 
 		const [enrichedItemsResult, prsWithCountsResult] = await Promise.allSettled([
 			enrichedItemsPromise,
-			this.getPullRequestsWithSuggestionCounts({ force: options?.force, cancellation: cancellation }),
+			options?.search
+				? this.getSearchedPullRequests(options.search)
+				: this.getPullRequestsWithSuggestionCounts({ force: options?.force, cancellation: cancellation }),
 		]);
 
 		if (cancellation?.isCancellationRequested) throw new CancellationError();
@@ -684,14 +740,15 @@ export class LaunchpadProvider implements Disposable {
 				}
 			}
 
-			const filteredPrs = !ignoredRepositories.size
-				? prs.value
-				: prs.value.filter(
-						pr =>
-							!ignoredRepositories.has(
-								`${pr.pullRequest.repository.owner.toLowerCase()}/${pr.pullRequest.repository.repo.toLowerCase()}`,
-							),
-				  );
+			const filteredPrs =
+				!ignoredRepositories.size || options?.search
+					? prs.value
+					: prs.value.filter(
+							pr =>
+								!ignoredRepositories.has(
+									`${pr.pullRequest.repository.owner.toLowerCase()}/${pr.pullRequest.repository.repo.toLowerCase()}`,
+								),
+					  );
 
 			// There was a conversation https://github.com/gitkraken/vscode-gitlens/pull/3200#discussion_r1563347675
 			// that was related to this piece of code.
@@ -753,7 +810,7 @@ export class LaunchpadProvider implements Disposable {
 						item.suggestedActionCategory,
 					)!;
 					// category overrides
-					if (staleDate != null && item.updatedDate.getTime() < staleDate.getTime()) {
+					if (!options?.search && staleDate != null && item.updatedDate.getTime() < staleDate.getTime()) {
 						actionableCategory = 'other';
 					} else if (codeSuggestionsCount > 0 && item.viewer.isAuthor) {
 						actionableCategory = 'code-suggestions';
@@ -789,7 +846,10 @@ export class LaunchpadProvider implements Disposable {
 			};
 			return result;
 		} finally {
-			this.updateGroupedIds(result?.items ?? []);
+			if (!options?.search) {
+				this.updateGroupedIds(result?.items ?? []);
+			}
+
 			if (result != null && fireRefresh) {
 				this._onDidRefresh.fire(result);
 			}
@@ -1039,7 +1099,13 @@ const slowEventTimeout = 1000 * 30; // 30 seconds
 
 function withDurationAndSlowEventOnTimeout<T>(
 	promise: Promise<T>,
-	name: 'getMyPullRequests' | 'getCodeSuggestionCounts' | 'getCodeSuggestions' | 'getEnrichedItems',
+	name:
+		| 'getMyPullRequests'
+		| 'getCodeSuggestionCounts'
+		| 'getCodeSuggestions'
+		| 'getEnrichedItems'
+		| 'getPullRequest'
+		| 'searchPullRequests',
 	container: Container,
 ): Promise<TimedResult<T>> {
 	return timedWithSlowThreshold(promise, {
