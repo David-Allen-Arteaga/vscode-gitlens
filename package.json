@@ -17988,7 +17988,7 @@
 		"@microsoft/fast-react-wrapper": "0.3.24",
 		"@octokit/graphql": "8.1.1",
 		"@octokit/request": "9.1.3",
-		"@octokit/types": "13.5.0",
+		"@octokit/types": "14.1.0",
 		"@octokit/request-error": "6.1.4",
 		"@opentelemetry/api": "1.9.0",
 		"@opentelemetry/exporter-trace-otlp-http": "0.53.0",
