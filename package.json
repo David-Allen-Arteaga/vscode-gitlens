@@ -18005,7 +18005,7 @@
 		"iconv-lite": "0.6.3",
 		"lit": "3.2.0",
 		"marked": "14.1.2",
-		"node-fetch": "2.7.0",
+		"node-fetch": "3.3.2",
 		"os-browserify": "0.3.0",
 		"path-browserify": "1.0.1",
 		"react": "16.8.4",
