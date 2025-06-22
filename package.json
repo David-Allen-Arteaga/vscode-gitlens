@@ -17983,7 +17983,7 @@
 		"@lit/context": "1.1.2",
 		"@lit/react": "1.0.5",
 		"@lit/task": "1.0.1",
-		"@microsoft/fast-element": "1.13.0",
+		"@microsoft/fast-element": "2.4.1",
 		"@microsoft/fast-foundation": "2.49.6",
 		"@microsoft/fast-react-wrapper": "0.3.24",
 		"@octokit/graphql": "8.1.1",
