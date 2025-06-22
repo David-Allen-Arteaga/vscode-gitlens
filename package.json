@@ -18009,7 +18009,7 @@
 		"os-browserify": "0.3.0",
 		"path-browserify": "1.0.1",
 		"react": "16.8.4",
-		"react-dom": "16.8.4",
+		"react-dom": "19.1.0",
 		"sortablejs": "1.15.0",
 		"tslib": "2.7.0"
 	},
